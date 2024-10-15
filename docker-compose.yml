@@ -1,0 +1,10 @@
+services:
+  db:
+    image: mysql:8.3.0
+    platform: linux/x86_64
+    volumes:
+      - type: bind
+        source: "./sql"
+        target: "/sql"
+    environment:
+      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
