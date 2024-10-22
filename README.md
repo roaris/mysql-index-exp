@@ -34,11 +34,17 @@ mysql> select count(distinct num1), count(distinct num2), count(distinct num3) f
 ## インデックスのイメージ
 B-Treeを簡単化して、配列として考えてしまった方が、インデックスについて考えやすいと思っている
 
-num1でインデックスを作成するなら、(id, num1)がnum1の昇順に並んだ配列を考える (ex. `[(2,1), (5,2), (1,2), (4,3), (3,4), (6,5), (7,5)]`)
+num1でインデックスを作成するなら、(id, num1)がnum1の昇順に並んだ配列を考える
 
-(num1, num2)でインデックスを作成するなら、(id, num1, num2)が(num1、num2)の昇順に並んだ配列を考える (ex. `[(2,1,2), (5,2,5), (1,2,7), (4,3,1), (3,4,4), (6,5,3), (7,5,6)]`)
+ex. [(2,1), (5,2), (1,2), (4,3), (3,4), (6,5), (7,5)]
 
-(num1, num2 desc)でインデックスを作成するなら、(id, num1, num2)がnum1の昇順に並んで、num1が同じ値の場合はnum2の降順に並んだ配列を考える (ex. `[(2,1,2), (5,2,7), (1,2,5), (4,3,1), (3,4,4), (6,5,6), (7,5,3)]`)
+(num1, num2)でインデックスを作成するなら、(id, num1, num2)が(num1、num2)の昇順に並んだ配列を考える
+
+ex. [(2,1,2), (5,2,5), (1,2,7), (4,3,1), (3,4,4), (6,5,3), (7,5,6)]
+
+(num1, num2 desc)でインデックスを作成するなら、(id, num1, num2)がnum1の昇順に並んで、num1が同じ値の場合はnum2の降順に並んだ配列を考える
+
+ex. [(2,1,2), (5,2,7), (1,2,5), (4,3,1), (3,4,4), (6,5,6), (7,5,3)]
 
 `where num1 >= 3`という条件の場合、num1 >= 3を満たす最左のノードを二分探索で見つけて、そこから右に辿っていく
 
@@ -345,7 +351,7 @@ mysql> explain select num1 from exp order by num1, num2 desc;
 1 row in set, 1 warning (0.00 sec)
 ```
 
-(num1, num2)ではなく(num1, num2 desc)でインデックスを作成する
+(num1, num2)ではなく(num1, num2 desc)でインデックスを作成すると、Using indexになった
 ```
 mysql> alter table exp drop index num1_num2_index;
 Query OK, 0 rows affected (0.03 sec)
@@ -370,4 +376,53 @@ mysql> explain select num1 from exp order by num1, num2 desc;
 |  1 | SIMPLE      | exp   | NULL       | index | NULL          | num1_num2_index | 8       | NULL | 998360 |   100.00 | Using index |
 +----+-------------+-------+------------+-------+---------------+-----------------+---------+------+--------+----------+-------------+
 1 row in set, 1 warning (0.00 sec)
+```
+
+```
+mysql> alter table exp drop index num1_num2_index;
+Query OK, 0 rows affected (0.04 sec)
+Records: 0  Duplicates: 0  Warnings: 0
+```
+
+## WHERE句のOR
+`select * from exp where num1 = 1 or num2 = 1;`というクエリを考える
+
+num1でインデックスを作成しても、num2でフルスキャンする必要があるので、インデックスは使われない
+```
+mysql> alter table exp add index num1_index(num1);
+Query OK, 0 rows affected (5.40 sec)
+Records: 0  Duplicates: 0  Warnings: 0
+
+mysql> explain select * from exp where num1 = 1 or num2 = 1;
++----+-------------+-------+------------+------+---------------+------+---------+------+--------+----------+-------------+
+| id | select_type | table | partitions | type | possible_keys | key  | key_len | ref  | rows   | filtered | Extra       |
++----+-------------+-------+------------+------+---------------+------+---------+------+--------+----------+-------------+
+|  1 | SIMPLE      | exp   | NULL       | ALL  | num1_index    | NULL | NULL    | NULL | 998360 |    10.00 | Using where |
++----+-------------+-------+------------+------+---------------+------+---------+------+--------+----------+-------------+
+1 row in set, 1 warning (0.00 sec)
+```
+
+num2でもインデックスを作成すれば、インデックスが使われるようになる
+```
+mysql> alter table exp add index num2_index(num2);
+Query OK, 0 rows affected (5.80 sec)
+Records: 0  Duplicates: 0  Warnings: 0
+
+mysql> explain select * from exp where num1 = 1 or num2 = 1;
++----+-------------+-------+------------+-------------+-----------------------+-----------------------+---------+------+------+----------+-------------------------------------------------+
+| id | select_type | table | partitions | type        | possible_keys         | key                   | key_len | ref  | rows | filtered | Extra                                           |
++----+-------------+-------+------------+-------------+-----------------------+-----------------------+---------+------+------+----------+-------------------------------------------------+
+|  1 | SIMPLE      | exp   | NULL       | index_merge | num1_index,num2_index | num1_index,num2_index | 4,4     | NULL | 1056 |   100.00 | Using union(num1_index,num2_index); Using where |
++----+-------------+-------+------------+-------------+-----------------------+-----------------------+---------+------+------+----------+-------------------------------------------------+
+1 row in set, 1 warning (0.00 sec)
+```
+
+```
+mysql> alter table exp drop index num1_index;
+Query OK, 0 rows affected (0.03 sec)
+Records: 0  Duplicates: 0  Warnings: 0
+
+mysql> alter table exp drop index num2_index;
+Query OK, 0 rows affected (0.04 sec)
+Records: 0  Duplicates: 0  Warnings: 0
 ```
